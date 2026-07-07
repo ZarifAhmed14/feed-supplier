@@ -11,9 +11,9 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`, choose an `.xlsx` or `.csv` file, review the analysis, then export the audit CSV or print the report.
+Open `http://localhost:3000`, create a request, add supplier prices, review the recommendation, approve, then prepare PO/tracking.
 
-Required columns: `supplier`, `ingredient`.
+Spreadsheet required columns: `supplier`, `product` or `ingredient`.
 
 Useful columns: `price`, `currency`, `unit`, `tier`, `availability`, `country`, `country risk`, `reliability`.
 
@@ -21,7 +21,7 @@ Accepted tier values: `Global MNC`, `International Manufacturer`, `Regional`, `L
 
 Accepted availability values: `Readily available`, `In stock`, `Seasonal`, `On order`, `Limited`.
 
-Country risk accepts `Low`, `Medium`, `High`, or a score from 0–100. Reliability accepts 0–100.
+Country risk accepts `Low`, `Medium`, `High`, or a score from 0-100. Reliability accepts 0-100.
 
 ## Verify
 

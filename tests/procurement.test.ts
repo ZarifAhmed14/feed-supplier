@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { landedCost, parsePrice, scoreSuppliers, type SupplierInput } from "../src/lib/procurement";
+import { landedCost, landedCostByTerm, parsePrice, scoreSuppliers, type SupplierInput } from "../src/lib/procurement";
 
 const row = (overrides: Partial<SupplierInput> = {}): SupplierInput => ({
   source: "test.csv",
@@ -54,9 +54,14 @@ describe("supplier scoring", () => {
     expect(result.subscores.countryRisk).toBe(75);
   });
 
-  it("excludes incomparable currencies", () => {
-    const results = scoreSuppliers([row(), row({ row: 3, supplier: "Supplier B", currency: "BDT" })]);
-    expect(results.every((result) => result.subscores.price === undefined)).toBe(true);
+  it("normalizes BDT/KG and USD/MT before price scoring", () => {
+    const results = scoreSuppliers([
+      row({ priceOriginal: "$200", currency: "USD", unit: "per MT" }),
+      row({ row: 3, supplier: "Supplier B", priceOriginal: "24", currency: "BDT", unit: "per KG" }),
+    ], { fxRate: 120 });
+    expect(results.find((result) => result.supplier === "Supplier A")?.normalizedMidpoint).toBe(200);
+    expect(results.find((result) => result.supplier === "Supplier B")?.normalizedMidpoint).toBe(200);
+    expect(results.find((result) => result.supplier === "Supplier A")?.subscores.price).toBe(100);
   });
 
   it("renormalizes over every possible number of present factors", () => {
@@ -92,9 +97,73 @@ describe("supplier scoring", () => {
     expect(result.score).toBeUndefined();
     expect(result.completeness).toBe(0);
   });
+
+  it("does not let a cheap late supplier always win", () => {
+    const results = scoreSuppliers([
+      row({ supplier: "Cheap Late", priceOriginal: "$180", leadTimeDays: 60, availableQuantity: 100 }),
+      row({ supplier: "Ready Supplier", priceOriginal: "$205", leadTimeDays: 3, availableQuantity: 100 }),
+    ], { product: "Maize", quantity: 50, requiredDate: "2026-07-20", maxPrice: 220 });
+    expect(results.find((result) => result.rank === 1)?.supplier).toBe("Ready Supplier");
+    expect(results.find((result) => result.supplier === "Cheap Late")?.flags.join(" ")).toContain("misses required date");
+  });
+
+  it("flags low quantity and above max price", () => {
+    const [result] = scoreSuppliers([row({ priceOriginal: "$260", availableQuantity: 20 })], { product: "Maize", quantity: 50, maxPrice: 240 });
+    expect(result.flags.join(" ")).toContain("Split order suggestion");
+    expect(result.flags.join(" ")).toContain("above max price");
+  });
+
+  it("ranks the supplier matching request country risk and reliability higher", () => {
+    const results = scoreSuppliers([
+      row({ supplier: "Mismatch", country: "India", countryRisk: "High", reliability: 60, tier: "Trading Company", availableQuantity: 100, leadTimeDays: 5 }),
+      row({ supplier: "Match", country: "Bangladesh", countryRisk: "Medium", reliability: 85, tier: "Local", availableQuantity: 100, leadTimeDays: 5 }),
+    ], { product: "Maize", quantity: 50, preferredCountry: "Bangladesh", riskTolerance: "Medium", minReliability: 80, supplierTypePreference: "Local" });
+    expect(results.find((result) => result.rank === 1)?.supplier).toBe("Match");
+  });
+
+  it("lowers confidence when quote data is missing", () => {
+    const [result] = scoreSuppliers([row()], { product: "Maize", quantity: 50 });
+    expect(result.confidence).toBeLessThan(60);
+    expect(result.flags.join(" ")).toContain("Missing lead time");
+  });
+
+  it("flags product spec mismatch", () => {
+    const [result] = scoreSuppliers([row({ moisture: "16%" })], { product: "Maize", moisture: "14%" });
+    expect(result.flags.join(" ")).toContain("moisture does not match");
+  });
+
+  it("blocks blacklisted supplier from top rank", () => {
+    const results = scoreSuppliers([
+      row({ supplier: "Bad Supplier", priceOriginal: "$100" }),
+      row({ row: 3, supplier: "Good Supplier", priceOriginal: "$210" }),
+    ], { product: "Maize", supplierPerformance: { "bad supplier": { watchStatus: "blacklist" } } });
+    expect(results.find((result) => result.supplier === "Bad Supplier")?.score).toBe(0);
+    expect(results.find((result) => result.rank === 1)?.supplier).toBe("Good Supplier");
+  });
+
+  it("penalizes poor supplier performance", () => {
+    const results = scoreSuppliers([
+      row({ supplier: "Late Supplier" }),
+      row({ row: 3, supplier: "Clean Supplier" }),
+    ], { supplierPerformance: { "late supplier": { lateDeliveries: 5, rejectedShipments: 1, priceAccuracy: 70, documentAccuracy: 70 }, "clean supplier": { priceAccuracy: 95, documentAccuracy: 95 } } });
+    expect(results.find((result) => result.rank === 1)?.supplier).toBe("Clean Supplier");
+  });
+
+  it("missing import documents lowers confidence", () => {
+    const [result] = scoreSuppliers([row({ country: "Brazil", documentsAvailable: "CO" })], { product: "Maize" });
+    expect(result.flags.join(" ")).toContain("Missing document");
+    expect(result.confidence).toBeLessThan(80);
+  });
+
+  it("keeps split order suggestion as a first-class field", () => {
+    const [result] = scoreSuppliers([row({ availableQuantity: 20 })], { product: "Maize", quantity: 50 });
+    expect(result.splitSuggestion).toContain("Supplier A: 20");
+  });
 });
 
 it("calculates landed cost without model arithmetic", () => {
   expect(landedCost(200, 30, 1, 5, 8)).toBe(250);
   expect(landedCost(200, 30, 1, 5, 8, 2, 10, 12)).toBe(516.4);
+  expect(landedCostByTerm(200, "CIF Chattogram", 30, 1, 5, 8)).toBe(218);
+  expect(landedCostByTerm(200, "Local delivery", 30, 1, 5, 8, 1, 0, 12)).toBe(212);
 });

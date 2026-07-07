@@ -19,6 +19,20 @@ const aliases: Record<keyof Omit<SupplierInput, "source" | "row">, string[]> = {
   country: ["country", "origin", "supplier country"],
   countryRisk: ["country risk", "risk"],
   reliability: ["reliability", "supply reliability", "reliability score"],
+  moq: ["moq", "minimum order quantity", "minimum quantity"],
+  availableQuantity: ["available quantity", "available qty", "stock quantity", "capacity"],
+  leadTimeDays: ["lead time", "lead time days", "delivery days"],
+  quoteValidityDate: ["quote validity", "valid until", "validity date"],
+  paymentTerms: ["payment terms"],
+  deliveryTerms: ["delivery terms", "incoterm", "incoterms"],
+  qualitySpec: ["quality spec", "specification", "quality"],
+  documentsAvailable: ["documents available", "documents", "certificates"],
+  moisture: ["moisture"],
+  protein: ["protein"],
+  origin: ["origin", "product origin"],
+  grade: ["grade"],
+  packaging: ["packaging", "packing"],
+  qcNote: ["qc requirement", "qc note", "qc result"],
 };
 
 const normalizeHeader = (value: Cell) => String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
@@ -82,6 +96,9 @@ function normalizeTables(tables: { sheet: string; data: Cell[][] }[]): ImportRes
         return;
       }
       const reliabilityValue = read("reliability");
+      const moqValue = read("moq");
+      const availableValue = read("availableQuantity");
+      const leadTimeValue = read("leadTimeDays");
       result.rows.push({
         source: table.sheet,
         row: index + 2,
@@ -98,6 +115,20 @@ function normalizeTables(tables: { sheet: string; data: Cell[][] }[]): ImportRes
           reliabilityValue === undefined || reliabilityValue === null || reliabilityValue === ""
             ? undefined
             : Number(reliabilityValue),
+        moq: moqValue === undefined || moqValue === null || moqValue === "" ? undefined : Number(moqValue),
+        availableQuantity: availableValue === undefined || availableValue === null || availableValue === "" ? undefined : Number(availableValue),
+        leadTimeDays: leadTimeValue === undefined || leadTimeValue === null || leadTimeValue === "" ? undefined : Number(leadTimeValue),
+        quoteValidityDate: String(read("quoteValidityDate") ?? "").trim() || undefined,
+        paymentTerms: String(read("paymentTerms") ?? "").trim() || undefined,
+        deliveryTerms: String(read("deliveryTerms") ?? "").trim() || undefined,
+        qualitySpec: String(read("qualitySpec") ?? "").trim() || undefined,
+        documentsAvailable: String(read("documentsAvailable") ?? "").trim() || undefined,
+        moisture: String(read("moisture") ?? "").trim() || undefined,
+        protein: String(read("protein") ?? "").trim() || undefined,
+        origin: String(read("origin") ?? "").trim() || undefined,
+        grade: String(read("grade") ?? "").trim() || undefined,
+        packaging: String(read("packaging") ?? "").trim() || undefined,
+        qcNote: String(read("qcNote") ?? "").trim() || undefined,
       });
     });
   }
@@ -128,9 +159,9 @@ export async function importFile(file: File): Promise<ImportResult> {
 }
 
 export const SAMPLE_ROWS: SupplierInput[] = [
-  { source: "Sample", row: 2, supplier: "Delta Agro", ingredient: "Soybean Meal", priceOriginal: "$470-$490", currency: "USD", unit: "per MT", tier: "Regional", availability: "In stock", country: "Bangladesh", countryRisk: "Medium", reliability: 82 },
-  { source: "Sample", row: 3, supplier: "Meghna Nutrition", ingredient: "Soybean Meal", priceOriginal: "$455", currency: "USD", unit: "per MT", tier: "Local", availability: "Limited", country: "Bangladesh", countryRisk: "Medium", reliability: 74 },
-  { source: "Sample", row: 4, supplier: "Atlas Commodities", ingredient: "Soybean Meal", priceOriginal: "$505", currency: "USD", unit: "per MT", tier: "International Manufacturer", availability: "Readily available", country: "Brazil", countryRisk: "Low", reliability: 91 },
-  { source: "Sample", row: 5, supplier: "Padma Feed Inputs", ingredient: "Maize", priceOriginal: "$245-$255", currency: "USD", unit: "per MT", tier: "Local", availability: "Seasonal", country: "Bangladesh", countryRisk: "Medium", reliability: 79 },
-  { source: "Sample", row: 6, supplier: "Eastern Grain Co.", ingredient: "Maize", priceOriginal: "$260", currency: "USD", unit: "per MT", tier: "Regional", availability: "In stock", country: "India", countryRisk: "Medium", reliability: 86 },
+  { source: "Sample", row: 2, supplier: "Delta Agro", ingredient: "Soybean Meal", priceOriginal: "$470-$490", currency: "USD", unit: "per MT", tier: "Regional", availability: "In stock", country: "Bangladesh", countryRisk: "Medium", reliability: 82, moq: 20, availableQuantity: 120, leadTimeDays: 8, quoteValidityDate: "2026-07-20", paymentTerms: "30% advance", deliveryTerms: "CFR Chattogram", documentsAvailable: "CO, invoice, QC report", moisture: "12%", protein: "46%", origin: "Bangladesh", grade: "Feed grade", packaging: "50kg bag", qcNote: "QC passed" },
+  { source: "Sample", row: 3, supplier: "Meghna Nutrition", ingredient: "Soybean Meal", priceOriginal: "$455", currency: "USD", unit: "per MT", tier: "Local", availability: "Limited", country: "Bangladesh", countryRisk: "Medium", reliability: 74, moq: 10, availableQuantity: 40, leadTimeDays: 4, quoteValidityDate: "2026-07-12", paymentTerms: "Cash", deliveryTerms: "Warehouse delivery", documentsAvailable: "Invoice", moisture: "13%", protein: "44%", origin: "Bangladesh", grade: "Standard", packaging: "Loose", qcNote: "QC pending" },
+  { source: "Sample", row: 4, supplier: "Atlas Commodities", ingredient: "Soybean Meal", priceOriginal: "$505", currency: "USD", unit: "per MT", tier: "International Manufacturer", availability: "Readily available", country: "Brazil", countryRisk: "Low", reliability: 91, moq: 100, availableQuantity: 500, leadTimeDays: 35, quoteValidityDate: "2026-08-01", paymentTerms: "LC", deliveryTerms: "CFR Chattogram", documentsAvailable: "CO, BL, insurance, invoice, QC report", moisture: "12%", protein: "47%", origin: "Brazil", grade: "Hi-pro", packaging: "Bulk", qcNote: "COA available" },
+  { source: "Sample", row: 5, supplier: "Padma Feed Inputs", ingredient: "Maize", priceOriginal: "$245-$255", currency: "USD", unit: "per MT", tier: "Local", availability: "Seasonal", country: "Bangladesh", countryRisk: "Medium", reliability: 79, moq: 5, availableQuantity: 80, leadTimeDays: 3, quoteValidityDate: "2026-07-13", paymentTerms: "Cash", deliveryTerms: "Warehouse delivery", documentsAvailable: "Invoice, QC report", moisture: "14%", protein: "8%", origin: "Bangladesh", grade: "Feed grade", packaging: "50kg bag", qcNote: "Aflatoxin checked" },
+  { source: "Sample", row: 6, supplier: "Eastern Grain Co.", ingredient: "Maize", priceOriginal: "$260", currency: "USD", unit: "per MT", tier: "Regional", availability: "In stock", country: "India", countryRisk: "Medium", reliability: 86, moq: 20, availableQuantity: 200, leadTimeDays: 10, quoteValidityDate: "2026-07-25", paymentTerms: "TT", deliveryTerms: "CPT Dhaka", documentsAvailable: "CO, invoice", moisture: "13%", protein: "9%", origin: "India", grade: "Feed grade", packaging: "Bulk", qcNote: "QC report pending" },
 ];

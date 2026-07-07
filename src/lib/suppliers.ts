@@ -5,12 +5,17 @@ export type SupplierProfile = {
   country: string;
   email?: string;
   phone?: string;
+  lateDeliveries?: number;
+  rejectedShipments?: number;
+  priceAccuracy?: number;
+  documentAccuracy?: number;
+  watchStatus?: "clear" | "watchlist" | "blacklist";
   status: "active" | "archived";
 };
 
 export const SEED_SUPPLIERS: SupplierProfile[] = [
-  { id: "delta-agro", name: "Delta Agro", product: "Soybean Meal", country: "Bangladesh", email: "sales@delta.example", phone: "+8801700000001", status: "active" },
-  { id: "atlas-commodities", name: "Atlas Commodities", product: "Soybean Meal", country: "Brazil", email: "trade@atlas.example", status: "active" },
+  { id: "delta-agro", name: "Delta Agro", product: "Soybean Meal", country: "Bangladesh", email: "sales@delta.example", phone: "+8801700000001", lateDeliveries: 1, rejectedShipments: 0, priceAccuracy: 92, documentAccuracy: 88, watchStatus: "clear", status: "active" },
+  { id: "atlas-commodities", name: "Atlas Commodities", product: "Soybean Meal", country: "Brazil", email: "trade@atlas.example", lateDeliveries: 0, rejectedShipments: 0, priceAccuracy: 95, documentAccuracy: 94, watchStatus: "clear", status: "active" },
 ];
 
 export const supplierKey = (name: string) => name.trim().toLowerCase();
