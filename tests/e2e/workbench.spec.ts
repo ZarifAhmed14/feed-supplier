@@ -15,6 +15,18 @@ async function loadSampleAndReview(page: import("@playwright/test").Page) {
   await page.locator(".wizard-actions").getByRole("button", { name: "Next", exact: true }).click();
 }
 
+test("top step buttons switch steps", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "2. Supplier prices" }).click();
+  await expect(page.getByRole("heading", { name: "Get Supplier Prices" })).toBeVisible();
+  await page.getByRole("button", { name: "3. Recommendation" }).click();
+  await expect(page.getByRole("heading", { name: "Review Recommendation" })).toBeVisible();
+  await page.getByRole("button", { name: "4. Approval" }).click();
+  await expect(page.getByRole("heading", { name: "Approve Supplier" })).toBeVisible();
+  await page.getByRole("button", { name: "5. PO & tracking" }).click();
+  await expect(page.getByRole("heading", { name: "Prepare PO + Track Order" })).toBeVisible();
+});
+
 test("loads wizard and ranks sample suppliers", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });

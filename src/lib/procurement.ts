@@ -102,6 +102,8 @@ const AVAILABILITY: Record<string, number> = {
 
 const RISK: Record<string, number> = { low: 100, medium: 50, high: 0 };
 const RISK_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 };
+// ponytail: static non-BDT rates keep offline mode working; replace with dated FX input before production.
+const USD_PER_CURRENCY: Record<string, number> = { usd: 1, bdt: 0, inr: 1 / 83, cny: 1 / 7.2, eur: 1.08 };
 
 const clean = (value?: string) => value?.trim().toLowerCase();
 const round = (value: number) => Math.round(value * 100) / 100;
@@ -140,11 +142,11 @@ export function normalizePrice(input: SupplierInput, fxRate = 1) {
   const unit = clean(input.unit);
   if (midpoint === undefined) return { midpoint };
   if (!currency || !unit) return { midpoint, warning: "Price excluded: currency or unit missing" };
-  if (!["usd", "bdt"].includes(currency)) return { midpoint, warning: "Price excluded: unsupported currency" };
+  if (!(currency in USD_PER_CURRENCY)) return { midpoint, warning: "Price excluded: unsupported currency" };
   if (!unit.includes("kg") && !unit.includes("mt") && !unit.includes("ton")) {
     return { midpoint, warning: "Price excluded: unsupported unit" };
   }
-  const usd = currency === "bdt" ? midpoint / Math.max(1, fxRate) : midpoint;
+  const usd = currency === "bdt" ? midpoint / Math.max(1, fxRate) : midpoint * USD_PER_CURRENCY[currency];
   return { midpoint, normalizedMidpoint: round(unit.includes("kg") ? usd * 1000 : usd), normalizedCurrency: "USD" as const, normalizedUnit: "per MT" as const };
 }
 
@@ -199,6 +201,20 @@ function requestFitScore(result: ScoreResult, request?: RequestFit) {
     const daysLeft = Math.ceil((new Date(request.requiredDate).getTime() - Date.now()) / 86_400_000);
     scores.push(result.leadTimeDays <= daysLeft ? 100 : 0);
     if (result.leadTimeDays > daysLeft) flags.push(`Rejected because lead time ${result.leadTimeDays} days misses required date`);
+  }
+
+  if (request.deliveryLocation) {
+    const location = clean(request.deliveryLocation);
+    const delivery = clean(result.deliveryTerms);
+    if (!delivery) {
+      scores.push(55);
+      flags.push("Missing delivery terms lowers location confidence");
+    } else if (delivery.includes(location ?? "")) {
+      scores.push(100);
+    } else {
+      scores.push(65);
+      flags.push(`Delivery terms do not name ${request.deliveryLocation}`);
+    }
   }
 
   const comparisonPrice = result.normalizedMidpoint ?? result.midpoint;
@@ -355,12 +371,13 @@ export function scoreSuppliers(inputs: SupplierInput[], request?: RequestFit): S
 
   for (const group of Map.groupBy(scored, (result) => result.ingredient.trim().toLowerCase()).values()) {
     const ordered = [...group].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    const fastest = ordered.filter((result) => result.leadTimeDays !== undefined).sort((a, b) => a.leadTimeDays! - b.leadTimeDays!)[0];
+    const eligible = ordered.filter((result) => result.score !== undefined && !result.flags.some((flag) => flag.startsWith("Blocked because supplier is blacklisted")));
+    const fastest = eligible.filter((result) => result.leadTimeDays !== undefined).sort((a, b) => a.leadTimeDays! - b.leadTimeDays!)[0];
     let previousScore: number | undefined;
     let previousRank = 0;
-    ordered.forEach((result, index) => {
+    eligible.forEach((result, index) => {
       const rank = result.score === previousScore ? previousRank : index + 1;
-      result.rank = result.score === undefined ? undefined : rank;
+      result.rank = rank;
       if (rank === 1) result.decisionTags = ["Best overall", ...(result.decisionTags ?? [])];
       if (fastest && result === fastest) result.decisionTags = [...(result.decisionTags ?? []), "Fastest delivery"];
       previousScore = result.score;

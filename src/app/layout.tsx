@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, Noto_Sans, Noto_Sans_Bengali } from "next/font/google";
 import "./globals.css";
 
@@ -9,6 +9,11 @@ const bangla = Noto_Sans_Bengali({ variable: "--font-bangla", subsets: ["bengali
 export const metadata: Metadata = {
   title: "Jogan — Feed Procurement Intelligence",
   description: "Auditable supplier comparison for Bangladesh animal feed procurement.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

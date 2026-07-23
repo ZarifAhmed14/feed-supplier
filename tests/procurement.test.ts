@@ -64,6 +64,15 @@ describe("supplier scoring", () => {
     expect(results.find((result) => result.supplier === "Supplier A")?.subscores.price).toBe(100);
   });
 
+  it("normalizes supported offline currencies", () => {
+    const results = scoreSuppliers([
+      row({ priceOriginal: "720", currency: "CNY", unit: "per MT" }),
+      row({ row: 3, supplier: "Supplier B", priceOriginal: "100", currency: "EUR", unit: "per MT" }),
+    ]);
+    expect(results.find((result) => result.supplier === "Supplier A")?.normalizedMidpoint).toBe(100);
+    expect(results.find((result) => result.supplier === "Supplier B")?.normalizedMidpoint).toBe(108);
+  });
+
   it("renormalizes over every possible number of present factors", () => {
     for (let count = 1; count <= 5; count++) {
       const input = row({
@@ -102,7 +111,7 @@ describe("supplier scoring", () => {
     const results = scoreSuppliers([
       row({ supplier: "Cheap Late", priceOriginal: "$180", leadTimeDays: 60, availableQuantity: 100 }),
       row({ supplier: "Ready Supplier", priceOriginal: "$205", leadTimeDays: 3, availableQuantity: 100 }),
-    ], { product: "Maize", quantity: 50, requiredDate: "2026-07-20", maxPrice: 220 });
+    ], { product: "Maize", quantity: 50, requiredDate: "2026-08-20", maxPrice: 220 });
     expect(results.find((result) => result.rank === 1)?.supplier).toBe("Ready Supplier");
     expect(results.find((result) => result.supplier === "Cheap Late")?.flags.join(" ")).toContain("misses required date");
   });
@@ -139,6 +148,16 @@ describe("supplier scoring", () => {
     ], { product: "Maize", supplierPerformance: { "bad supplier": { watchStatus: "blacklist" } } });
     expect(results.find((result) => result.supplier === "Bad Supplier")?.score).toBe(0);
     expect(results.find((result) => result.rank === 1)?.supplier).toBe("Good Supplier");
+  });
+
+  it("never assigns a rank to a blacklisted supplier", () => {
+    const [result] = scoreSuppliers([row()], { supplierPerformance: { "supplier a": { watchStatus: "blacklist" } } });
+    expect(result.rank).toBeUndefined();
+  });
+
+  it("uses delivery terms when a delivery location is requested", () => {
+    const [result] = scoreSuppliers([row({ deliveryTerms: "Warehouse delivery" })], { deliveryLocation: "Dhaka warehouse" });
+    expect(result.flags).toContain("Delivery terms do not name Dhaka warehouse");
   });
 
   it("penalizes poor supplier performance", () => {

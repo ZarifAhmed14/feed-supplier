@@ -95,7 +95,7 @@ export function Workbench() {
   const results = useMemo(() => scoreSuppliers(rows, requestFit), [requestFit, rows]);
   const activeSuppliers = suppliers.filter((supplier) => supplier.status === "active");
   const knownSuppliers = new Set(activeSuppliers.map((supplier) => supplierKey(supplier.name)));
-  const ranked = results.filter((result) => result.score !== undefined).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const ranked = results.filter((result) => result.score !== undefined && !result.flags.some((flag) => flag.startsWith("Blocked because supplier is blacklisted"))).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   const requestProductChoice = PRODUCTS.includes(request.product) ? request.product : request.product ? "Other" : "";
   const supplierProductChoice = PRODUCTS.includes(supplierForm.product) ? supplierForm.product : supplierForm.product ? "Other" : "";
   const requestUnitChoice = UNITS.includes(request.unit) ? request.unit : request.unit ? "Other" : "";
@@ -106,10 +106,25 @@ export function Workbench() {
   const targetPrice = request.maxPrice || (priceGuide ? String(priceGuide.max) : "");
   const maxPrice = Number(request.maxPrice) || priceGuide?.max || 0;
   const recommended = ranked[0];
-  const cheapest = results.filter((result) => result.midpoint !== undefined).sort((a, b) => (a.midpoint ?? Infinity) - (b.midpoint ?? Infinity))[0];
+  const cheapest = results.filter((result) => result.normalizedMidpoint !== undefined && !result.flags.some((flag) => flag.startsWith("Blocked because supplier is blacklisted"))).sort((a, b) => (a.normalizedMidpoint ?? Infinity) - (b.normalizedMidpoint ?? Infinity))[0];
   const approvedResult = approval ? results.find((result) => resultKey(result) === approval.key) : undefined;
+  const validRows = results.length;
+  const readyForRecommendation = validRows > 0;
   const priceProduct = request.product || quoteForm.ingredient;
   const selectedDocs = approvedResult?.country?.toLowerCase().includes("bangladesh") ? LOCAL_DOCS : IMPORT_DOCS;
+  const requestSummary = [
+    request.product,
+    request.quantity ? `${request.quantity} ${request.unit || ""}`.trim() : "",
+    request.deliveryLocation ? `to ${request.deliveryLocation}` : "",
+    request.requiredDate ? `by ${request.requiredDate}` : "",
+    request.preferredCountry ? `preferred country: ${request.preferredCountry}` : "",
+    request.riskTolerance ? `risk: ${request.riskTolerance}` : "",
+    request.minReliability ? `minimum reliability: ${request.minReliability}%` : "",
+    request.supplierTypePreference ? `supplier type: ${request.supplierTypePreference}` : "",
+    lowPrice ? `low bid: ${lowPrice} USD/MT` : "",
+    averagePrice ? `average: ${averagePrice} USD/MT` : "",
+    targetPrice ? `max: ${targetPrice} USD/MT` : "",
+  ].filter(Boolean);
   const poDraft = approvedResult ? [
     "PURCHASE ORDER",
     "",
@@ -362,21 +377,22 @@ export function Workbench() {
     <main className="shell">
       <header className="page-head">
         <div>
-          <p className="label">Procurement workflow</p>
-          <h1>Supplier Price Analyzer</h1>
-          <p>Follow the steps. Advanced fields are optional.</p>
+          <p className="label">Procurement workspace</p>
+          <h1>JOGAN</h1>
+          <p>Feed supplier pricing, recommendation, approval, PO, and tracking in one local workbench.</p>
         </div>
-        <strong>JOGAN</strong>
+        <strong className="save-state">Local workspace</strong>
       </header>
 
       <nav className="steps" aria-label="Procurement steps">
         {STEPS.map((item, index) => (
-          <button className={index === step ? "active" : ""} key={item} type="button" onClick={() => setStep(index)}>
+          <button className={index === step ? "active" : index < step ? "done" : ""} key={item} type="button" onClick={() => setStep(index)}>
             {index + 1}. {item}
           </button>
         ))}
       </nav>
 
+      <div className="workspace">
       <section className="card step-card">
         <p className="label">Step {step + 1} of {STEPS.length}: {STEPS[step]}</p>
 
@@ -434,12 +450,13 @@ export function Workbench() {
         {step === 1 && (
           <>
             <h2>Get Supplier Prices</h2>
-            <p className="muted">Upload supplier prices, use sample data, or search online later.</p>
+            {requestSummary.length > 0 && <div className="request-summary"><strong>Request summary</strong><p>{requestSummary.join(" · ")}</p></div>}
+            <p className="muted">Upload supplier prices, use sample data, or search online later. For recommendation, click Next after adding prices.</p>
             <div className="actions price-actions">
-              <button className="primary-action" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>{busy ? "Reading file..." : "Upload Excel/CSV"}</button>
-              <button type="button" onClick={runOnlineSearch}>Online Search</button>
-              <button type="button" onClick={loadSample}>Use sample data</button>
-              <button type="button" onClick={exportAudit} disabled={!results.length}>Export audit CSV</button>
+              <button className="button-primary primary-action" type="button" onClick={() => inputRef.current?.click()} disabled={busy}>{busy ? "Reading file..." : "Upload Excel/CSV"}</button>
+              <button className="button-secondary" type="button" onClick={runOnlineSearch}>Online Search</button>
+              <button className="button-secondary" type="button" onClick={loadSample}>Use sample data</button>
+              <button className="button-ghost" type="button" onClick={exportAudit} disabled={!results.length}>Export audit CSV</button>
             </div>
             <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.csv" onChange={(event) => loadFile(event.target.files?.[0])} />
             <p className="muted">Current data: {fileName}</p>
@@ -481,7 +498,7 @@ export function Workbench() {
                   <label>QC note<input value={quoteForm.qcNote} onChange={(event) => setQuoteForm({ ...quoteForm, qcNote: event.target.value })} /></label>
                 </div>
               </details>
-              <div className="actions row-gap"><button type="button" onClick={addManualQuote}>Save supplier price</button></div>
+              <div className="actions row-gap"><button className="button-primary" type="button" onClick={addManualQuote}>Save supplier price</button></div>
             </details>
             {quoteError && <p className="error" role="alert">{quoteError}</p>}
             <div className="recommendation" aria-label="Price step recommendation">
@@ -505,12 +522,12 @@ export function Workbench() {
                 <label>Document accuracy %<input type="number" min="0" max="100" value={supplierForm.documentAccuracy} onChange={(event) => setSupplierForm({ ...supplierForm, documentAccuracy: event.target.value })} /></label>
                 <label>Status<select value={supplierForm.watchStatus} onChange={(event) => setSupplierForm({ ...supplierForm, watchStatus: event.target.value })}><option value="clear">Clear</option><option value="watchlist">Watchlist</option><option value="blacklist">Blacklist</option></select></label>
               </div>
-              <div className="actions row-gap"><button type="button" onClick={saveSupplier}>Add supplier</button></div>
+              <div className="actions row-gap"><button className="button-primary" type="button" onClick={saveSupplier}>Add supplier</button></div>
               {supplierError && <p className="error" role="alert">{supplierError}</p>}
               <div className="table-wrap compact">
                 <table>
                   <thead><tr><th>Name</th><th>Product</th><th>Country</th><th>History</th><th>Action</th></tr></thead>
-                  <tbody>{activeSuppliers.map((supplier) => <tr key={supplier.id}><td>{supplier.name}<small>{supplier.watchStatus || "clear"}</small></td><td>{supplier.product || "-"}</td><td>{supplier.country || "-"}</td><td>Late {supplier.lateDeliveries ?? 0}, reject {supplier.rejectedShipments ?? 0}<small>Price {supplier.priceAccuracy ?? "-"}%, docs {supplier.documentAccuracy ?? "-"}%</small></td><td><button type="button" onClick={() => setSuppliers(archiveSupplier(suppliers, supplier.id))}>Archive</button></td></tr>)}</tbody>
+                  <tbody>{activeSuppliers.map((supplier) => <tr key={supplier.id}><td>{supplier.name}<small>{supplier.watchStatus || "clear"}</small></td><td>{supplier.product || "-"}</td><td>{supplier.country || "-"}</td><td>Late {supplier.lateDeliveries ?? 0}, reject {supplier.rejectedShipments ?? 0}<small>Price {supplier.priceAccuracy ?? "-"}%, docs {supplier.documentAccuracy ?? "-"}%</small></td><td><button className="button-ghost button-small" type="button" onClick={() => setSuppliers(archiveSupplier(suppliers, supplier.id))}>Archive</button></td></tr>)}</tbody>
                 </table>
               </div>
             </details>
@@ -525,14 +542,14 @@ export function Workbench() {
               <summary>Optional: free agent prototypes</summary>
               <p className="muted">Email compose and pasted reply import are real/free. Search and verification are still local prototypes.</p>
               <div className="actions row-gap">
-                <button type="button" onClick={draftSupplierEmails}>Open real email draft</button>
-                <button type="button" onClick={collectSupplierReplies}>Collect mock replies</button>
-                <button type="button" onClick={scheduleFollowUp}>Queue follow-up</button>
-                <button type="button" onClick={verifySuppliers}>Verify mock suppliers</button>
-                <button type="button" onClick={suggestDecision}>Suggest decision</button>
+                <button className="button-secondary" type="button" onClick={draftSupplierEmails}>Open real email draft</button>
+                <button className="button-secondary" type="button" onClick={collectSupplierReplies}>Collect mock replies</button>
+                <button className="button-secondary" type="button" onClick={scheduleFollowUp}>Queue follow-up</button>
+                <button className="button-secondary" type="button" onClick={verifySuppliers}>Verify mock suppliers</button>
+                <button className="button-secondary" type="button" onClick={suggestDecision}>Suggest decision</button>
               </div>
               <label className="reply-box">Paste real supplier email reply<textarea value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="Example:&#10;From: Delta Agro&#10;Supplier: Delta Agro&#10;Price: USD 244 per MT" /></label>
-              <button type="button" onClick={importEmailReply}>Import pasted reply</button>
+              <button className="button-primary" type="button" onClick={importEmailReply}>Import pasted reply</button>
               <ul>{agentLog.length ? agentLog.map((item, index) => <li key={`${item}-${index}`}>{item}</li>) : <li>No prototype actions yet.</li>}</ul>
             </details>
           </>
@@ -542,8 +559,8 @@ export function Workbench() {
           <>
             <h2>Review Recommendation</h2>
             <p className="muted">The recommendation is calculated from price, request fit, quantity, lead time, risk, reliability, country, supplier type, and quote quality.</p>
-            <div className="recommendation" aria-label="Supplier recommendation">
-              {recommended ? <><strong>Recommended supplier: {recommended.supplier}</strong><p>Best overall for {recommended.ingredient} with score {recommended.score?.toFixed(1)}. Confidence {recommended.confidenceLabel ?? "Weak"} ({recommended.confidence?.toFixed(0) ?? "N/A"}%). {cheapest && cheapest.supplier !== recommended.supplier ? `Lowest price is ${cheapest.supplier}, but request fit favors ${recommended.supplier}.` : "It is also the lowest comparable price."}</p><p className="muted">Original: {recommended.priceOriginal || "missing"} {recommended.currency || ""} {recommended.unit || ""}. Normalized: {recommended.normalizedMidpoint ? `${recommended.normalizedMidpoint.toFixed(2)} USD per MT` : "not available"}.</p><p className="muted">Why: {(recommended.decisionTags ?? ["Best overall"]).join(", ")}.</p>{recommended.splitSuggestion && <p className="muted">Split order: {recommended.splitSuggestion}</p>}<p className="muted">{recommended.flags.length ? `Warnings: ${recommended.flags.join("; ")}` : "No major warnings on this row."}</p></> : <p>No recommendation yet. Go back and add supplier prices.</p>}
+            <div className="recommendation recommendation-card" aria-label="Supplier recommendation">
+              {recommended ? <><span className="status-badge">Best overall</span><strong>Recommended supplier: {recommended.supplier}</strong><div className="metric-grid"><span>Score <b>{recommended.score?.toFixed(1)}</b></span><span>Confidence <b>{recommended.confidenceLabel ?? "Weak"} {recommended.confidence?.toFixed(0) ?? "N/A"}%</b></span><span>Price <b>{recommended.normalizedMidpoint ? `${recommended.normalizedMidpoint.toFixed(2)} USD/MT` : "Not normalized"}</b></span></div><p>For {recommended.ingredient}. {cheapest && cheapest.supplier !== recommended.supplier ? `Lowest price is ${cheapest.supplier}, but request fit favors ${recommended.supplier}.` : "It is also the lowest comparable price."}</p><p className="muted">Why: {(recommended.decisionTags ?? ["Best overall"]).join(", ")}.</p>{recommended.splitSuggestion && <p className="warning-chip">Split order: {recommended.splitSuggestion}</p>}<p className="muted">{recommended.flags.length ? `Warnings: ${recommended.flags.join("; ")}` : "No major warnings on this row."}</p></> : <p>No recommendation yet. Go back and add supplier prices.</p>}
             </div>
             <details className="advanced">
               <summary>Optional: import cost settings</summary>
@@ -574,11 +591,11 @@ export function Workbench() {
             <p className="muted">Human approval is required before PO. Choose the recommended supplier or select another supplier price.</p>
             <label>Approval reason<textarea value={approvalReason} onChange={(event) => setApprovalReason(event.target.value)} placeholder="Example: best landed cost, acceptable lead time, docs available" /></label>
             {approvalError && <p className="error" role="alert">{approvalError}</p>}
-            {recommended ? <div className="recommendation"><strong>{recommended.supplier}</strong><p>Recommended for {recommended.ingredient}. Score {recommended.score?.toFixed(1)}.</p><button type="button" onClick={() => approve(recommended)}>Approve recommended supplier</button></div> : <p>No supplier ready for approval.</p>}
+            {recommended ? <div className="recommendation recommendation-card"><span className="status-badge">Ready for approval</span><strong>{recommended.supplier}</strong><p>Recommended for {recommended.ingredient}. Score {recommended.score?.toFixed(1)}.</p><button className="button-primary" type="button" onClick={() => approve(recommended)}>Approve recommended supplier</button></div> : <p>No supplier ready for approval.</p>}
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Supplier</th><th>Ingredient</th><th>Score</th><th>Action</th></tr></thead>
-                <tbody>{results.length ? results.map((result) => <tr key={`${result.source}-${result.row}`}><td>{result.supplier}</td><td>{result.ingredient}</td><td>{result.score?.toFixed(1) ?? "N/A"}</td><td><button type="button" onClick={() => approve(result)}>{approval?.key === resultKey(result) ? "Approved" : "Approve"}</button></td></tr>) : <tr><td colSpan={4}>No supplier prices to approve.</td></tr>}</tbody>
+                <tbody>{results.length ? results.map((result) => <tr key={`${result.source}-${result.row}`}><td>{result.supplier}</td><td>{result.ingredient}</td><td>{result.score?.toFixed(1) ?? "N/A"}</td><td><button className="button-secondary button-small" type="button" onClick={() => approve(result)}>{approval?.key === resultKey(result) ? "Approved" : "Approve"}</button></td></tr>) : <tr><td colSpan={4}>No supplier prices to approve.</td></tr>}</tbody>
               </table>
             </div>
           </>
@@ -593,18 +610,36 @@ export function Workbench() {
             <textarea className="rfq" readOnly value={poDraft} aria-label="PO draft" />
             <h3>Document checklist</h3>
             <div className="checklist">{selectedDocs.map((doc) => <label key={doc}><input type="checkbox" checked={Boolean(docs[doc])} onChange={(event) => setDocs({ ...docs, [doc]: event.target.checked })} /> {doc}</label>)}</div>
-            <details className="advanced"><summary>Optional: shipment monitor prototype</summary><p className="muted">This advances order status locally to show how shipment monitoring would look before a real shipping API.</p><button type="button" onClick={monitorShipment}>Advance shipment status</button></details>
+            <details className="advanced"><summary>Optional: shipment monitor prototype</summary><p className="muted">This advances order status locally to show how shipment monitoring would look before a real shipping API.</p><button className="button-secondary" type="button" onClick={monitorShipment}>Advance shipment status</button></details>
             <details className="advanced"><summary>Optional: audit trail</summary><p className="muted">Shows approval history so you can see who/what was approved during the buying flow.</p><ul>{audit.length ? audit.map((item, index) => <li key={`${item}-${index}`}>{item}</li>) : <li>No approvals yet.</li>}</ul></details>
             <details className="advanced"><summary>Optional: agent log</summary><p className="muted">Shows local prototype actions the agent simulated.</p><ul>{agentLog.length ? agentLog.map((item, index) => <li key={`${item}-${index}`}>{item}</li>) : <li>No prototype actions yet.</li>}</ul></details>
           </>
         )}
 
         <div className="wizard-actions">
-          <button type="button" onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))} disabled={step === STEPS.length - 1}>Next</button>
+          <button className="button-primary" type="button" onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))} disabled={step === STEPS.length - 1}>Next</button>
         </div>
 
         {importMeta && importMeta.rejected.length > 0 && <details className="advanced"><summary>Rejected rows</summary><ul>{importMeta.rejected.map((item) => <li key={`${item.source}-${item.row}`}>{item.source}, row {item.row}: {item.reason}</li>)}</ul></details>}
       </section>
+
+      <aside className="context-panel" aria-label="Procurement context">
+        <p className="label">Current work</p>
+        <h2>{STEPS[step]}</h2>
+        <div className="context-block">
+          <strong>Request</strong>
+          <p>{requestSummary.length ? requestSummary.slice(0, 6).join(" Â· ") : "No request yet"}</p>
+        </div>
+        <div className="context-block">
+          <strong>Recommendation status</strong>
+          <p>{recommended ? `${recommended.supplier} - ${recommended.confidenceLabel ?? "Weak"} confidence` : readyForRecommendation ? "Calculating recommendation" : "Add supplier prices first"}</p>
+        </div>
+        <div className="context-block">
+          <strong>Data quality</strong>
+          <p>{validRows} supplier price row(s). {importMeta?.rejected.length ?? 0} rejected.</p>
+        </div>
+      </aside>
+      </div>
     </main>
   );
 }
